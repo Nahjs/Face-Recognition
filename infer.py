@@ -34,6 +34,7 @@ from config_utils import load_config, ConfigObject # 导入配置加载工具和
 from model_factory import get_backbone, get_head # 导入模型构建的工厂函数
 from model_factory import get_backbone, get_head   # 导入模型工厂函数
 from utils.image_processing import process_image_local # 从共享模块导入
+import time # 导入 time 模块
 
 # 全局变量，用于保存加载的标签映射，避免重复读取文件
 loaded_label_map = None
@@ -303,6 +304,8 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
     predicted_label_name = "未知"
     confidence_or_similarity = 0.0
 
+    inference_start_time = time.time() # 记录推理开始时间
+
     with paddle.no_grad():
         features = model_backbone(img_tensor)
 
@@ -400,27 +403,53 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
         else:
             raise ValueError(f"不支持的推理模式 (基于loss_type): {loaded_loss_type}")
 
+    inference_end_time = time.time() # 记录推理结束时间
+    inference_duration = inference_end_time - inference_start_time # 计算推理耗时
+    print(f"推理耗时: {inference_duration:.4f} 秒")
+
     # --- 可视化结果 ---
     should_visualize = cmd_args.infer_visualize if cmd_args.infer_visualize is not None else config.infer.get('infer_visualize', True)
+
     if should_visualize:
         try:
             img_display = cv2.imread(target_image_path)
-            text_to_display = f"{predicted_label_name} ({confidence_or_similarity:.2f})"
+            if img_display is None:
+                print(f"警告: 无法读取图像文件 {target_image_path}，跳过可视化。")
             
-            # 设置文本参数
+            text_lines = []
+            text_lines.append(f"名称: {predicted_label_name}")
+            if config.infer.get('display_confidence', True):
+                if loaded_loss_type == 'arcface':
+                    text_lines.append(f"相似度: {confidence_or_similarity:.4f}")
+                else:
+                    text_lines.append(f"置信度: {confidence_or_similarity:.4f}")
+            if config.infer.get('display_inference_time', True):
+                text_lines.append(f"耗时: {inference_duration:.4f}s")
+            if config.infer.get('display_model_info', True):
+                text_lines.append(f"模型: {loaded_model_type.upper()} ({loaded_loss_type.upper()})")
+
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.6
-            font_color = (0, 255, 0) # Green
             thickness = 1
-            text_size, _ = cv2.getTextSize(text_to_display, font, font_scale, thickness)
+            line_height = int(cv2.getTextSize("测试", font, font_scale, thickness)[0][1] * 1.5) # 预估行高
             text_x = 10
-            text_y = text_size[1] + 10
-            
-            # 绘制带背景的文本
-            cv2.rectangle(img_display, (text_x - 2, text_y - text_size[1] - 2), 
-                          (text_x + text_size[0] + 2, text_y + 2), (0,0,0), -1) # Black background
-            cv2.putText(img_display, text_to_display, (text_x, text_y), font, 
-                        font_scale, font_color, thickness, cv2.LINE_AA)
+            text_y_start = line_height # 从第一行开始，预留顶部空间
+
+            # 获取配置的颜色，并转换为 OpenCV 的 BGR 格式
+            text_color_rgb = config.infer.get('text_color_rgb', [0, 255, 0]) # 默认为绿色
+            background_color_rgb = config.infer.get('background_color_rgb', [0, 0, 0]) # 默认为黑色
+            text_color_bgr = (text_color_rgb[2], text_color_rgb[1], text_color_rgb[0])
+            background_color_bgr = (background_color_rgb[2], background_color_rgb[1], background_color_rgb[0])
+
+            for i, line in enumerate(text_lines):
+                text_size, _ = cv2.getTextSize(line, font, font_scale, thickness)
+                current_text_y = text_y_start + i * line_height
+                
+                # 绘制带背景的文本
+                cv2.rectangle(img_display, (text_x - 2, current_text_y - text_size[1] - 2), 
+                              (text_x + text_size[0] + 2, current_text_y + 2), background_color_bgr, -1) 
+                cv2.putText(img_display, line, (text_x, current_text_y), font, 
+                            font_scale, text_color_bgr, thickness, cv2.LINE_AA)
 
             results_dir = "results"
             os.makedirs(results_dir, exist_ok=True)

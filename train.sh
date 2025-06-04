@@ -1,4 +1,5 @@
- #!/bin/bash
+#!/bin/bash
+echo "LD_LIBRARY_PATH when train.sh starts: $LD_LIBRARY_PATH"
 set -e # 任何命令失败立即退出
 
 # --- 用户配置区域 (WSL 本地环境) ---
@@ -15,10 +16,19 @@ CONFIG_NAMES_TO_TRAIN=(
     #ResNet 骨干网络；ArcFace Loss；Momentum 是另一种经典的优化器，常用于图像任务；
     #StepDecay 是一个简单的学习率调度器，在预设的 epoch 节点降低学习率。与 AdamW+CosineDecay 组合形成对比。
     resnet_arcface_momentum_stepdecay_config
-    # 下面两个用来做对比
+    # 下面两个用来做对比，ArcFace 和 CrossEntropy 的对比
     vgg_arcface_adamw_cosineannealingdecay_config
     vgg_arcface_momentum_stepdecay_config
-    
+
+    # --- 新增交叉熵模型组合 (共4种) ---
+    # ResNet 骨干网络；CrossEntropy Loss；AdamW 优化器；CosineAnnealingDecay 调度器
+    resnet_ce_adamw_cosineannealingdecay_config
+    # ResNet 骨干网络；CrossEntropy Loss；Momentum 优化器；StepDecay 调度器
+    resnet_ce_momentum_stepdecay_config
+    # VGG 骨干网络；CrossEntropy Loss；AdamW 优化器；CosineAnnealingDecay 调度器
+    vgg_ce_adamw_cosineannealingdecay_config
+    # VGG 骨干网络；CrossEntropy Loss；Momentum 优化器；StepDecay 调度器
+    vgg_ce_momentum_stepdecay_config
     
     # "vgg_ce_steplr_config"
     # "vgg_ce_multistep_config"
@@ -87,6 +97,7 @@ CONFIG_NAMES_TO_TRAIN=(
     # resnet_arcface_momentum_reduceonplateau_config
     # resnet_arcface_momentum_cosineannealingwarmrestarts_config
     # resnet_arcface_momentum_polynomialdecay_config
+
 )
 
 # --- 脚本开始 ---

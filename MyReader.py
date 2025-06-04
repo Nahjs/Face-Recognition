@@ -199,16 +199,16 @@ def create_data_loader(config: ConfigObject, mode: str = 'train'):
         is_train = True
         batch_size = config.batch_size
         shuffle = True
-    elif mode == 'eval':
-        list_file_name = dataset_params.eval_list # 例如 'face/test.list'
-        is_train = False # 评估时关闭随机增强
-        batch_size = config.batch_size # 评估时batch_size也可以独立设置
-        shuffle = False # 评估时通常不打乱
-    elif mode == 'acceptance': # 新增验收模式
-        list_file_name = dataset_params.acceptance_list # 例如 'face/acceptance.list'
-        is_train = False # 验收时关闭随机增强
-        batch_size = config.batch_size # 验收时batch_size也可以独立设置
-        shuffle = False # 验收时通常不打乱
+    elif mode == 'validation': # 验证模式 (取代 eval/acceptance)
+        list_file_name = dataset_params.validation_list # 例如 'face/validation.list'
+        is_train = False # 验证时关闭随机增强
+        batch_size = config.batch_size # 验证时batch_size也可以独立设置
+        shuffle = False # 验证时通常不打乱
+    elif mode == 'test': # 测试模式
+        list_file_name = dataset_params.test_list # 例如 'face/test.list'
+        is_train = False # 测试时关闭随机增强
+        batch_size = config.batch_size # 测试时batch_size也可以独立设置
+        shuffle = False # 测试时通常不打乱
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
@@ -244,9 +244,11 @@ def create_data_loader(config: ConfigObject, mode: str = 'train'):
     try:
         with open(readme_path, 'r', encoding='utf-8') as f:
             readme_data = json.load(f)
-            total_classes = readme_data.get("total_classes", 0)
+            # 修改这里，正确访问嵌套的 total_classes
+            data_statistics = readme_data.get("data_statistics", {})
+            total_classes = data_statistics.get("total_classes", 0)
             if total_classes == 0:
-                 print(f"Warning: 'total_classes' not found or is 0 in {readme_path}.")
+                 print(f"Warning: 'total_classes' not found or is 0 in {readme_path} (under data_statistics).")
     except FileNotFoundError:
         print(f"Warning: readme.json not found at {readme_path}. Cannot determine total classes.")
     except json.JSONDecodeError:

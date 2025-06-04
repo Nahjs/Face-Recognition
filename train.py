@@ -57,7 +57,7 @@ def evaluate(model: nn.Layer, head: nn.Layer | None, eval_loader: paddle.io.Data
     total_samples = 0
     start_time = time.time()
 
-    print(f"\n--- Epoch {epoch + 1}/{config.epochs} 评估开始 ---")
+    print(f"\n信息: 开始评估 Epoch {epoch + 1}/{config.epochs}...") # 简化评估开始打印
 
     with paddle.no_grad():
         for batch_id, (images, labels) in enumerate(eval_loader):
@@ -112,9 +112,7 @@ def evaluate(model: nn.Layer, head: nn.Layer | None, eval_loader: paddle.io.Data
     accuracy = correct_predictions / total_samples if total_samples > 0 else 0.0
 
     end_time = time.time()
-    print(f"--- Epoch {epoch + 1}/{config.epochs} 评估结束 ---")
-    print(f"评估耗时: {end_time - start_time:.2f} 秒")
-    print(f"评估结果: 平均损失: {avg_loss:.4f}, 准确率: {accuracy:.4f}")
+    print(f"信息: 评估 Epoch {epoch + 1} 完成。耗时: {end_time - start_time:.2f}s, 损失: {avg_loss:.4f}, 准确率: {accuracy:.4f}") # 简化评估结束打印
 
     if log_writer:
         log_writer.add_scalar(tag='Loss/Eval_Epoch', value=avg_loss, step=epoch + 1)
@@ -134,7 +132,7 @@ def train_one_epoch(model: nn.Layer, head: nn.Layer | None, train_loader: paddle
     total_samples_this_epoch = 0
     epoch_start_time = time.time()
 
-    print(f"\n--- Epoch {epoch + 1}/{config.epochs} --- LR: {optimizer.get_lr():.6f} ---")
+    print(f"\n信息: 训练 Epoch {epoch + 1}/{config.epochs} (当前LR: {optimizer.get_lr():.6f})...") # 简化训练开始打印
 
     for batch_id, (images, labels) in enumerate(train_loader):
         batch_start_time = time.time()
@@ -151,10 +149,20 @@ def train_one_epoch(model: nn.Layer, head: nn.Layer | None, train_loader: paddle
                  logits = outputs
                  loss = F.cross_entropy(logits, labels)
              else:
-                 raise ValueError(f"模型输出不包含损失。请检查 CombinedModel 的 forward 方法和损失类型 '{config.loss_type}'。")
+                 # 这通常不应该在 train_one_epoch 中发生，因为模型设计为返回损失或logits
+                 raise ValueError(f"错误: 训练模式下，模型输出不包含损失。请检查 CombinedModel 的 forward 方法和损失类型 '{config.loss_type}'。")
 
         if loss is None:
-             raise ValueError(f"损失计算失败。请检查 CombinedModel 的 forward 方法和损失类型 '{config.loss_type}'。")
+             raise ValueError(f"错误: 损失计算失败。请检查 CombinedModel 的 forward 方法和损失类型 '{config.loss_type}'。")
+        
+        # --- 检查损失是否为 NaN ---
+
+        if paddle.isnan(loss):
+            print(f"警告: Epoch {epoch + 1}, Batch {batch_id + 1}: 检测到 NaN 损失。这通常表示训练不稳定，请检查学习率、数据或模型配置。") # 调整警告措辞
+            # 可以在这里添加 break 或其他处理逻辑，但目前只打印警告
+            # continue # 暂时不跳过批次，以便观察更多 NaN 情况
+        # --- 结束检查 ---
+
 
         total_loss_this_epoch += loss.item() * labels.shape[0]
 
@@ -183,10 +191,7 @@ def train_one_epoch(model: nn.Layer, head: nn.Layer | None, train_loader: paddle
             log_writer.flush()
 
             batch_time = time.time() - batch_start_time
-            print(f"  Epoch: {epoch + 1}/{config.epochs}, Batch: {batch_id + 1}/{len(train_loader)}, "
-                  f"Loss(batch): {current_batch_loss:.4f}, Acc(batch): {current_batch_acc:.4f}, "
-                  f"AvgLoss(epoch): {avg_loss_so_far_this_epoch:.4f}, AvgAcc(epoch): {avg_acc_so_far_this_epoch:.4f}, "
-                  f"LR: {optimizer.get_lr():.6f}, BatchTime: {batch_time:.2f}s")
+            print(f"  Epoch: {epoch + 1}, Batch: {batch_id + 1}/{len(train_loader)}, Loss: {current_batch_loss:.4f}, Acc: {current_batch_acc:.4f}, LR: {optimizer.get_lr():.6f}, Time: {batch_time:.2f}s") # 简化输出
 
         if log_writer and batch_id == 0 and hasattr(config, 'log_train_image_interval') and config.log_train_image_interval is not None and (epoch + 1) % config.log_train_image_interval == 0:
             num_images_to_log = min(4, images.shape[0])
@@ -219,8 +224,7 @@ def train_one_epoch(model: nn.Layer, head: nn.Layer | None, train_loader: paddle
     avg_train_acc = total_correct_this_epoch / total_samples_this_epoch if total_samples_this_epoch > 0 else 0.0
 
     epoch_duration = time.time() - epoch_start_time
-    print(f"Epoch {epoch + 1} Training Summary: AvgLoss: {avg_train_loss:.4f}, AvgAcc: {avg_train_acc:.4f}")
-    print(f"Epoch {epoch + 1} Training Time: {epoch_duration:.2f} seconds")
+    print(f"信息: 训练 Epoch {epoch + 1} 概览: 损失: {avg_train_loss:.4f}, 准确率: {avg_train_acc:.4f}, 耗时: {epoch_duration:.2f}s") # 简化摘要
 
     if log_writer:
         log_writer.add_scalar(tag='Loss/Train_Epoch', value=avg_train_loss, step=epoch + 1)
@@ -229,7 +233,7 @@ def train_one_epoch(model: nn.Layer, head: nn.Layer | None, train_loader: paddle
         log_writer.flush()
 
     if log_writer and hasattr(config, 'log_histogram_interval') and config.log_histogram_interval is not None and (epoch + 1) % config.log_histogram_interval == 0:
-        print(f"\n--- Epoch {epoch + 1}/{config.epochs} 记录参数直方图 ---")
+        print(f"信息: 记录参数直方图 Epoch {epoch + 1}/{config.epochs}...") # 简化直方图打印
         for name, param in model.named_parameters():
             if param.trainable:
                 try:
@@ -252,12 +256,12 @@ def train_one_epoch(model: nn.Layer, head: nn.Layer | None, train_loader: paddle
                     except Exception as e_hist_grad:
                         print(f"警告: 记录梯度直方图失败 (参数: {name}): {e_hist_grad}")
         log_writer.flush()
-        print(f"--- Epoch {epoch + 1}/{config.epochs} 参数直方图记录完毕 ---")
+        print(f"信息: 参数直方图记录完毕 Epoch {epoch + 1}.") # 简化直方图结束打印
 
 def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
     place = paddle.CUDAPlace(0) if final_config.use_gpu else paddle.CPUPlace()
     paddle.set_device('gpu:0' if final_config.use_gpu else 'cpu')
-    print(f"使用 {'GPU' if final_config.use_gpu else 'CPU'} 进行训练")
+    print(f"信息: 使用 {'GPU' if final_config.use_gpu else 'CPU'} 进行训练。随机种子: {final_config.seed}") # 简化并合并种子信息
     set_seed(final_config.seed)
 
     backbone_type = final_config.model_type
@@ -288,7 +292,7 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
 
     os.makedirs(current_logdir, exist_ok=True)
     log_writer = LogWriter(logdir=current_logdir)
-    print(f"VisualDL 日志将保存到 (每个运行实例一个目录): {current_logdir}")
+    print(f"信息: VisualDL 日志将保存到: {current_logdir}") # 简化日志路径打印
 
     hparams_dict = {
         'backbone': backbone_type,
@@ -320,37 +324,42 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
     ]
     try:
         log_writer.add_hparams(hparams_dict=hparams_dict, metrics_list=tracked_metrics_for_hparams)
-        print("超参数已记录到 VisualDL HParams。")
+        print("信息: 超参数已记录到 VisualDL HParams。") # 调整为信息
     except Exception as e_hparam:
-        print(f"记录超参数到 VisualDL HParams 失败: {e_hparam}。请检查 VisualDL 版本。将保存为JSON。")
+        print(f"警告: 记录超参数到 VisualDL HParams 失败: {e_hparam}。将保存为JSON。") # 调整为警告
         config_summary_path = os.path.join(current_logdir, "hparams_summary.json")
         with open(config_summary_path, 'w', encoding='utf-8') as f_cfg:
             json.dump({"hparams": hparams_dict, "tracked_metrics_for_hparams": tracked_metrics_for_hparams}, f_cfg, indent=4, ensure_ascii=False)
-        print(f"超参数概要已保存为JSON: {config_summary_path}")
+        print(f"信息: 超参数概要已保存为JSON: {config_summary_path}") # 调整为信息
 
     log_writer.flush()
 
-    print("\n正在创建训练数据加载器...")
-    train_loader = MyReader.create_data_loader(final_config, mode='train')
-    print("\n正在创建测试数据加载器...")
-    eval_loader = MyReader.create_data_loader(final_config, mode='eval')
+    print("\n信息: --- 数据加载器创建 ---") # 新增
+    print("信息: 正在创建训练数据加载器...")
+    train_loader, num_train_classes = MyReader.create_data_loader(final_config, mode='train')
+    # 更新配置中的类别数量，以确保模型头部使用实际的数据类别数
+    final_config.num_classes = num_train_classes 
+    print("信息: 正在创建验证数据加载器...")
+    validation_loader, _ = MyReader.create_data_loader(final_config, mode='validation') # 第二个返回值可以忽略，因为训练类别数已更新
+    print("信息: 正在创建测试数据加载器...") # 简化
+    test_loader, _ = MyReader.create_data_loader(final_config, mode='test')
 
     model_backbone, backbone_out_dim = get_backbone(
-        final_config.model.get(f'{final_config.model_type}_params', {}),
-        final_config.model_type,
-        final_config.image_size
+        config_model_params=final_config.model.get(f'{final_config.model_type}_params', {}),
+        model_type_str=final_config.model_type,
+        image_size=final_config.image_size
     )
-    print(f"骨干网络 ({final_config.model_type.upper()}) 加载成功，输出特征维度: {backbone_out_dim}")
+    print(f"信息: 骨干网络 ({final_config.model_type.upper()}) 加载成功，输出特征维度: {backbone_out_dim}") # 调整为信息
 
     model_head = None
     if final_config.loss_type in ['cross_entropy', 'arcface']:
         model_head = get_head(
-            final_config.loss.get(f'{final_config.loss_type}_params', {}),
-            final_config.loss_type,
-            backbone_out_dim,
-            final_config.num_classes
+            config_loss_params=final_config.loss.get(f'{final_config.loss_type}_params', {}),
+            loss_type_str=final_config.loss_type,
+            in_features=backbone_out_dim,
+            num_classes=final_config.num_classes
         )
-        print(f"头部模块 ({final_config.loss_type.upper()}) 加载成功，输入特征维度: {backbone_out_dim}, 输出类别数: {final_config.num_classes}")
+        print(f"信息: 头部模块 ({final_config.loss_type.upper()}) 加载成功，输入特征维度: {backbone_out_dim}, 输出类别数: {final_config.num_classes}") # 调整为信息
 
     class CombinedModel(nn.Layer):
         def __init__(self, backbone, head=None):
@@ -371,6 +380,11 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
 
     total_steps_per_epoch = len(train_loader)
     total_training_steps = total_steps_per_epoch * final_config.epochs
+
+    # --- 新增：打印实际加载的warmup配置 ---
+    print(f"调试信息: final_config.lr_scheduler_params.warmup: {final_config.lr_scheduler_params.warmup}")
+    # --- 结束新增 ---
+
     lr_scheduler = get_lr_scheduler(
         config=final_config,
         initial_learning_rate=final_config.learning_rate,
@@ -395,7 +409,8 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
              weight_decay=optimizer_params.get('weight_decay', 0.0005)
          )
     else:
-        raise ValueError(f"不支持的优化器类型: {final_config.optimizer_type}")
+        raise ValueError(f"错误: 不支持的优化器类型: {final_config.optimizer_type}")
+    print(f"信息: 优化器 ({final_config.optimizer_type.upper()}) 已构建。") # 新增
 
     # 定义固定的检查点文件名
     fixed_checkpoint_filename_base = "model_checkpoint"
@@ -424,7 +439,7 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
             expected_metadata_path = os.path.join(previous_checkpoint_save_subdir, f"checkpoint_{fixed_checkpoint_filename_base}.json")
 
             if os.path.exists(expected_pdparams_path) and os.path.exists(expected_metadata_path):
-                print(f"Resuming. Attempting to load checkpoint from prior run: {previous_checkpoint_save_subdir}")
+                print(f"信息: 检测到先前运行的检查点，尝试从 {previous_checkpoint_save_subdir} 恢复训练。") # 调整为信息
                 # 使用临时的 CheckpointManager 从先前运行加载
                 loader_checkpoint_manager = CheckpointManager(
                     model_save_dir=previous_checkpoint_save_subdir,
@@ -435,21 +450,21 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
                     model, optimizer, lr_scheduler, resume=True # resume=True here to force loading attempt
                 )
                 if start_epoch > 0: # Indicates successful load
-                    print(f"成功从 {latest_prev_run_dir} 恢复。起始 epoch: {start_epoch}, 上次运行的最佳准确率: {best_acc:.4f}")
+                    print(f"信息: 成功从 {latest_prev_run_dir} 恢复。起始 epoch: {start_epoch}, 上次运行的最佳准确率: {best_acc:.4f}") # 调整为信息
                 else:
-                    print(f"警告: 尝试从 {latest_prev_run_dir} 加载检查点但未能恢复有效状态 (start_epoch is 0)。将从头开始训练。")
+                    print(f"警告: 尝试从 {latest_prev_run_dir} 加载检查点但未能恢复有效状态 (起始 epoch 为 0)。将从头开始训练。") # 调整为警告
                     # Ensure best_acc is reset if load "failed" to produce a resume state
                     best_acc = 0.0
                     loaded_meta_data = {} 
             else:
-                print(f"配置了恢复训练 (resume=True)，但在最新的先前运行目录 {latest_prev_run_dir} 中未找到有效的检查点文件 ({fixed_checkpoint_filename_base}.pdparams/.json)。将从头开始训练。")
+                print(f"警告: 配置了恢复训练 (resume=True)，但在最新的先前运行目录 {latest_prev_run_dir} 中未找到有效检查点文件。将从头开始训练。") # 调整为警告
         else:
-            print(f"配置了恢复训练 (resume=True)，但未找到相同超参数组合的先前运行记录。将从头开始训练。")
+            print(f"警告: 配置了恢复训练 (resume=True)，但未找到相同超参数组合的先前运行记录。将从头开始训练。") # 调整为警告
     else: # final_config.resume is False
-        print("未配置恢复训练 (resume=False)。将从头开始训练。")
-        # start_epoch, best_acc, loaded_meta_data remain 0, 0.0, {}
+        print("信息: 未配置恢复训练 (resume=False)。将从头开始训练。") # 调整为信息
 
     # --- 初始化用于保存到当前运行目录的 CheckpointManager ---
+
     checkpoint_save_subdir = os.path.join(current_logdir, "checkpoints")
     # checkpoint_manager_model_name = active_config_name if active_config_name else combo_dir_name # 旧的动态命名
     checkpoint_manager = CheckpointManager(
@@ -467,16 +482,17 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
 
     for epoch in range(start_epoch, final_config.epochs):
         train_one_epoch(model, model_head, train_loader, optimizer, lr_scheduler, final_config, epoch, log_writer, base_tag_prefix="")
-        test_avg_loss, test_accuracy = evaluate(model, model_head, eval_loader, final_config, epoch, log_writer, base_tag_prefix="")
+        # 在每个 epoch 结束后，使用验证集进行评估
+        validation_avg_loss, validation_accuracy = evaluate(model, model_head, validation_loader, final_config, epoch, log_writer, base_tag_prefix="Validation")
 
         if final_config.lr_scheduler_type.lower() == 'reduceonplateau' and lr_scheduler:
-             lr_scheduler.step(test_avg_loss)
+             lr_scheduler.step(validation_avg_loss)
 
-        is_best = test_accuracy > best_acc
+        is_best = validation_accuracy > best_acc # 根据验证集准确率决定是否保存最佳模型
 
         current_metadata = {
             'epoch': epoch + 1,
-            'best_acc': max(test_accuracy, best_acc),
+            'best_acc': max(validation_accuracy, best_acc),
             'config_name': active_config_name if active_config_name else combo_dir_name,
             'model_type': final_config.model_type,
             'loss_type': final_config.loss_type,
@@ -486,8 +502,8 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
             'image_size': final_config.image_size,
             'num_classes': final_config.num_classes,
             'seed': final_config.seed,
-            'last_eval_accuracy': test_accuracy,
-            'last_eval_loss': test_avg_loss,
+            'last_eval_accuracy': validation_accuracy,
+            'last_eval_loss': validation_avg_loss,
             'previous_best_acc': best_acc,
             'model_specific_params': final_config.model.get(f'{final_config.model_type}_params', {}).to_dict() 
                                      if isinstance(final_config.model.get(f'{final_config.model_type}_params', {}), ConfigObject) 
@@ -498,30 +514,39 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
         }
         checkpoint_manager.save_checkpoint(model, optimizer, lr_scheduler, current_metadata, is_best=is_best)
         if is_best:
-            best_acc = test_accuracy
+            best_acc = validation_accuracy
 
-    print("\n训练完成。")
-    print(f"总耗时: {time.time() - training_start_time:.2f} 秒")
-    print(f"在评估集上的最佳准确率: {best_acc:.4f}")
-    print(f"最终模型检查点位于: {checkpoint_manager.checkpoint_path}") # Path to the latest checkpoint of THIS run
-    print(f"性能最佳的模型位于: {checkpoint_manager.best_model_path}") # Path to the best model of THIS run
+    print("\n信息: --- 训练结束 ---") # 简化
+    print(f"信息: 总训练耗时: {time.time() - training_start_time:.2f}s") # 简化
+    print(f"信息: 最佳验证集准确率: {best_acc:.4f}") # 简化
+    print(f"信息: 最新检查点保存于: {checkpoint_manager.checkpoint_path}") # 简化
+    print(f"信息: 性能最佳的模型保存于: {checkpoint_manager.best_model_path}") # 简化
 
-    print("\n开始导出训练好的模型 (骨干网络) 到 Paddle Inference 格式...")
+    # 训练结束后，使用测试集进行最终评估
+    print("\n信息: --- 在测试集上进行最终评估 ---") # 简化
+    final_test_loss, final_test_accuracy = evaluate(model, model_head, test_loader, final_config, final_config.epochs, log_writer, base_tag_prefix="FinalTest")
+    print(f"信息: 最终测试集结果: 损失: {final_test_loss:.4f}, 准确率: {final_test_accuracy:.4f}") # 简化
+    if log_writer:
+        log_writer.add_scalar(tag='Metric/Final_Test_Accuracy', value=final_test_accuracy, step=final_config.epochs)
+        log_writer.add_scalar(tag='Loss/Final_Test_Loss', value=final_test_loss, step=final_config.epochs)
+        log_writer.flush()
+
+    print("\n信息: --- 模型导出 ---") # 新增
     export_model_name_prefix = "model_for_graph" 
     export_path_prefix = os.path.join(current_logdir, export_model_name_prefix)
 
     try:
         model_to_export, _ = get_backbone(
-            final_config.model.get(f'{final_config.model_type}_params', {}),
-            final_config.model_type,
-            final_config.image_size
+            config_model_params=final_config.model.get(f'{final_config.model_type}_params', {}),
+            model_type_str=final_config.model_type,
+            image_size=final_config.image_size
         )
 
         if not os.path.exists(checkpoint_manager.best_model_path):
             print(f"警告: 最佳模型文件 {checkpoint_manager.best_model_path} 未找到，无法导出用于Graph的骨干网络。")
             model_to_export = None
         else:
-            print(f"从最佳模型加载骨干网络权重: {checkpoint_manager.best_model_path}")
+            print(f"信息: 从最佳模型加载骨干网络权重: {checkpoint_manager.best_model_path}")
             full_model_state_dict = paddle.load(checkpoint_manager.best_model_path)
             backbone_state_dict = {k.replace('backbone.', '', 1): v for k, v in full_model_state_dict.items() if k.startswith('backbone.')}
 
@@ -529,9 +554,9 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
                 print(f"警告: 在最佳模型 {checkpoint_manager.best_model_path} 中未找到 'backbone.' 前缀的权重。将尝试直接加载整个状态字典到 model_to_export。")
                 try:
                     model_to_export.set_state_dict(full_model_state_dict)
-                    print("直接加载权重到 model_to_export 成功。")
+                    print("信息: 直接加载权重到 model_to_export 成功。")
                 except RuntimeError as e_load_direct:
-                    print(f"直接加载权重到 model_to_export 失败: {e_load_direct}。Graph导出将跳过。")
+                    print(f"错误: 直接加载权重到 model_to_export 失败: {e_load_direct}。Graph导出将跳过。")
                     model_to_export = None
             else:
                 model_to_export.set_state_dict(backbone_state_dict)
@@ -544,25 +569,26 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
                 path=export_path_prefix,
                 input_spec=[paddle.static.InputSpec(shape=[None, 3, final_config.image_size, final_config.image_size], dtype='float32')]
             )
-            print(f"用于Graph可视化的骨干网络模型已成功导出到: {export_path_prefix}.pdmodel 和 {export_path_prefix}.pdiparams (位于 {current_logdir})")
+            print(f"信息: 用于Graph可视化的骨干网络模型已成功导出到: {export_path_prefix}.pdmodel 和 {export_path_prefix}.pdiparams。") # 简化
         else:
-            print("由于权重加载问题或 model_to_export 为 None，跳过Graph模型导出。")
+            print("警告: 由于权重加载问题或 model_to_export 为 None，跳过Graph模型导出。") # 调整为警告
 
     except Exception as e:
-        print(f"导出用于Graph可视化的模型失败: {e}")
+        print(f"错误: 导出用于Graph可视化的模型失败: {e}")
 
     if log_writer:
         log_writer.close()
-        print("VisualDL LogWriter 已关闭。")
+        print("信息: VisualDL LogWriter 已关闭。") # 调整为信息
 
     # --- 训练完成后，如果使用的是ArcFace，自动创建特征库 ---
+
     if final_config.loss_type.lower() == 'arcface':
         print("\n--- ArcFace 模型训练完成，尝试自动创建特征库 ---")
         try:
             # 确保导入 create_face_library 函数
             try:
                 from create_face_library import create_face_library as build_feature_lib
-                print("成功导入 create_face_library.py 中的 build_feature_lib 函数。")
+                print("信息: 成功导入 create_face_library.py 中的 build_feature_lib 函数。") # 调整为信息
             except ImportError as e_import_cfl:
                 print(f"错误: 导入 create_face_library 模块失败: {e_import_cfl}。自动建库将跳过。")
                 build_feature_lib = None
@@ -604,7 +630,7 @@ def train(final_config: ConfigObject, cmd_line_args: argparse.Namespace):
                         print(f"       您可以稍后手动运行 create_face_library.py 脚本，并指定模型路径为: {checkpoint_manager.best_model_path}")
 
             else: # build_feature_lib is None due to import error
-                print("由于导入 create_face_library 失败，跳过自动创建特征库。")
+                print("警告: 由于导入 create_face_library 失败，跳过自动创建特征库。") # 调整为警告
 
         except Exception as e_create_lib_outer:
             print(f"错误: 自动创建特征库的准备阶段失败: {e_create_lib_outer}")

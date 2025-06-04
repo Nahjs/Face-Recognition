@@ -57,7 +57,7 @@ def run_acceptance_evaluation(config: ConfigObject, cmd_args: argparse.Namespace
         # CreateDataList.py 修改后，eval_list (test.list) 现在是 30% 的测试集
         test_loader = MyReader.create_data_loader(
             config=config,
-            mode='eval' # 加载测试集 (原 eval + acceptance)
+            mode='test' # 修改为 'test' 以加载测试集
         )
         print(f"测试数据加载器创建成功，共 {len(test_loader.dataset)} 个样本。")
     except Exception as e:

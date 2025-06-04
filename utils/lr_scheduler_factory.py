@@ -53,12 +53,12 @@
 
 import paddle
 import paddle.optimizer.lr as lr_
-# 导入 Warmup 调度器，它通常用于包装其他调度器
+# 导入 LinearWarmup 调度器，它通常用于包装其他调度器
 try:
-    from paddle.optimizer.lr import Warmup
+    from paddle.optimizer.lr import LinearWarmup
 except ImportError:
-    print("警告: paddle.optimizer.lr 模块中未找到 Warmup 类。Warmup 功能将无法使用。")
-    Warmup = None # Define a dummy class if Warmup is not available
+    print("警告: paddle.optimizer.lr 模块中未找到 LinearWarmup 类。Warmup 功能将无法使用。")
+    LinearWarmup = None # Define a dummy class if LinearWarmup is not available
 
 
 from config_utils import ConfigObject # 假设 ConfigObject 在 config_utils.py 中定义
@@ -200,64 +200,49 @@ def get_lr_scheduler(config: ConfigObject, initial_learning_rate: float, total_s
          )
 
     elif lr_scheduler_type == 'cosineannealingwarmrestarts':
-         T_0 = lr_scheduler_params.get('T_0')
-         T_mult = lr_scheduler_params.get('T_mult', 1)
-         eta_min = lr_scheduler_params.get('eta_min', 0)
+        T_0 = lr_scheduler_params.get('T_0')
+        T_mult = lr_scheduler_params.get('T_mult', 1)
+        eta_min = lr_scheduler_params.get('eta_min', 0)
 
-         if T_0 is None:
-             raise ValueError("CosineAnnealingWarmRestarts requires 'T_0' parameter.")
+        if T_0 is None:
+            raise ValueError("CosineAnnealingWarmRestarts requires 'T_0' parameter.")
 
-         # CosineAnnealingWarmRestarts in Paddle takes T_0 as the number of *iterations* in the first cycle.
-         # Iterations usually refers to steps.
-         # If steps_per_epoch is available, assume T_0 in config is in epochs and convert to steps.
-         if steps_per_epoch is not None:
-             T_0_steps = T_0 * steps_per_epoch # Convert T_0 from epochs to steps
-             print(f"创建 CosineAnnealingWarmRestarts 调度器: initial_lr={initial_learning_rate}, T_0 (steps)={T_0_steps}, T_mult={T_mult}, eta_min={eta_min}")
-         else:
-             # If steps_per_epoch is not available, assume T_0 in config is already in steps
-             T_0_steps = T_0
-             print(f"创建 CosineAnnealingWarmRestarts 调度器: initial_lr={initial_learning_rate}, T_0 (assuming steps)={T_0_steps}, T_mult={T_mult}, eta_min={eta_min}")
-
-
-         scheduler = lr_.CosineAnnealingWarmRestarts(
-              learning_rate=initial_learning_rate,
-              T_0=T_0_steps,
-              T_mult=T_mult,
-              eta_min=eta_min
-         )
+        scheduler = lr_.CosineAnnealingWarmRestarts(
+            learning_rate=initial_learning_rate,
+            T_0=T_0,
+            T_mult=T_mult,
+            eta_min=eta_min
+        )
+        print(f"创建 CosineAnnealingWarmRestarts 调度器: initial_lr={initial_learning_rate}, T_0={T_0}, T_mult={T_mult}, eta_min={eta_min}")
 
 
     else:
         raise ValueError(f"不支持的学习率调度器类型: {lr_scheduler_type}")
 
-    # Wrap with Warmup if configured
-    if Warmup is not None and warmup_params.get('use_warmup', False):
-        warmup_steps = warmup_params.get('warmup_steps')
+    # 最后应用 Warmup 阶段 (如果启用且可用)
+    if LinearWarmup and warmup_params.get('use_warmup', False):
+        warmup_ratio = warmup_params.get('warmup_ratio')
         start_lr = warmup_params.get('start_lr')
-        if warmup_steps is None or start_lr is None:
-             raise ValueError("Warmup requires 'warmup_steps' and 'start_lr' parameters if use_warmup is True.")
 
-        # Warmup in Paddle takes warmup_steps as total number of steps for warmup
-        # Use total_steps if available to ensure correct warmup steps relative to total training steps
-        if total_steps is not None:
-             # Ensure warmup_steps doesn't exceed total_steps
-             actual_warmup_steps = min(warmup_steps, total_steps)
-             print(f"创建 Warmup 包装器: warmup_steps (total)={actual_warmup_steps}, start_lr={start_lr}")
+        if warmup_ratio is None or start_lr is None:
+            raise ValueError("Warmup configuration requires 'warmup_ratio' and 'start_lr'.")
+
+        # 只有当总步数大于10时才启用预热，并根据比例计算预热步数
+        if total_steps is not None and total_steps > 10:
+            calculated_warmup_steps = int(total_steps * warmup_ratio)
+            if calculated_warmup_steps == 0 and total_steps > 0: # 确保至少有1步预热如果total_steps > 0
+                calculated_warmup_steps = 1
+            
+            print(f"为已创建的调度器 ({lr_scheduler_type.upper()}) 添加 Warmup 阶段: 总步数={total_steps}, 预热比例={warmup_ratio}, 计算预热步数={calculated_warmup_steps}, 开始学习率={start_lr}, 结束学习率={initial_learning_rate}")
+
+            scheduler = LinearWarmup(
+                learning_rate=scheduler, # Wrap the base scheduler
+                warmup_steps=calculated_warmup_steps,
+                start_lr=start_lr,
+                end_lr=initial_learning_rate # Warmup ends at the initial learning rate of the base scheduler
+            )
         else:
-             actual_warmup_steps = warmup_steps
-             print(f"创建 Warmup 包装器: warmup_steps (from config)={actual_warmup_steps}, start_lr={start_lr}")
-
-        scheduler = Warmup(
-            learning_rate=scheduler, # Wrap the base scheduler
-            warmup_steps=actual_warmup_steps,
-            start_lr=start_lr,
-            end_lr=initial_learning_rate, # Warmup ends at the base scheduler's initial_lr
-            # Optional: linear=True for linear warmup
-        )
-        print(f"将基础调度器 {type(scheduler)} 包装在 Warmup 中。")
-
-    if scheduler is None:
-        raise ValueError(f"未能创建学习率调度器，请检查配置和参数。")
+            print(f"警告: 未满足启用 Warmup 条件 (total_steps={total_steps} 不大于10)，跳过 Warmup。")
 
     return scheduler
 
@@ -427,8 +412,8 @@ if __name__ == '__main__':
     mock_warmup_steps = 500
     mock_warmup_start_lr = 0.001
     try:
-        if Warmup is None:
-             print("  跳过测试: Warmup 类不可用。")
+        if LinearWarmup is None:
+             print("  跳过测试: LinearWarmup 类不可用。")
         else:
             config_warmup_step = MockConfig({
                 "lr_scheduler_type": "StepDecay",
@@ -446,8 +431,8 @@ if __name__ == '__main__':
     # 10. 测试带 Warmup 的 CosineAnnealingDecay
     print("\n10. 测试带 Warmup 的 CosineAnnealingDecay:")
     try:
-        if Warmup is None:
-             print("  跳过测试: Warmup 类不可用。")
+        if LinearWarmup is None:
+             print("  跳过测试: LinearWarmup 类不可用。")
         else:
             config_warmup_cosine = MockConfig({
                 "lr_scheduler_type": "CosineAnnealingDecay",
@@ -464,8 +449,8 @@ if __name__ == '__main__':
     # 11. 测试带 Warmup 的 CosineAnnealingWarmRestarts
     print("\n11. 测试带 Warmup 的 CosineAnnealingWarmRestarts:")
     try:
-        if Warmup is None:
-             print("  跳过测试: Warmup 类不可用。")
+        if LinearWarmup is None:
+             print("  跳过测试: LinearWarmup 类不可用。")
         else:
             config_warmup_warm_restarts = MockConfig({
                 "lr_scheduler_type": "CosineAnnealingWarmRestarts",

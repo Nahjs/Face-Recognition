@@ -6,7 +6,7 @@ set -e # Any command failing will cause the script to exit.
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Path to the main configuration file (used by create_face_library.py and acceptance_test.py)
-CONFIG_FILE="${PROJECT_DIR}/configs/432_config.yaml"
+CONFIG_FILE="${PROJECT_DIR}/configs/48_config.yaml"
 
 # Base directory for logs and checkpoints (relative to PROJECT_DIR)
 # Find models recursively in this directory structure.
