@@ -47,7 +47,8 @@ from config_utils import load_config, ConfigObject # 导入配置加载工具和
 from model_factory import get_backbone # 仅需骨干网络进行特征提取
 from paddle.io import Dataset, DataLoader # Ensure DataLoader is imported if MyReader.create_data_loader is used indirectly
 import MyReader # Needed for MyReader.create_data_loader
-from utils.image_processing import process_image_local # 从共享模块导入
+from utils.image_processing import process_image # 从共享模块导入
+import paddle.nn.functional as F
 
 def create_face_library(config: ConfigObject, cmd_args: argparse.Namespace):
     """
@@ -235,11 +236,12 @@ def create_face_library(config: ConfigObject, cmd_args: argparse.Namespace):
                 continue 
             
             try:
-                img_processed_np = process_image_local(
-                    full_img_path,
+                img_processed_np = process_image(
+                    img_path=full_img_path,
                     target_size=loaded_image_size,
                     mean_rgb=image_mean,
-                    std_rgb=image_std
+                    std_rgb=image_std,
+                    is_bgr_input=True
                 )
                 img_tensor = paddle.to_tensor(img_processed_np)
                 feature_vector = model_backbone(img_tensor).numpy().flatten()

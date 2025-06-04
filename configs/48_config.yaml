@@ -25,7 +25,7 @@ active_config: resnet_arcface_adamw_cosineannealingdecay_warmup_config
 
 # --- 推理活动配置选择 (修改这里的 'active_infer_config' 的值来切换要使用的推理配置块) ---
 # 这使得用户可以方便地切换用于推理的模型组合，而无需手动指定模型路径。
-active_infer_config: resnet_arcface_adamw_cosineannealingdecay_config # 默认使用推荐组合进行推理
+active_infer_config: resnet_arcface_adamw_cosineannealingdecay_warmup_config # 默认使用推荐组合进行推理
 
 # --- 全局默认设置 (设定一套合理的推荐参数作为所有实验的基础) ---
 # 大多数配置块将直接使用这里的参数，除非显式覆盖。
@@ -140,10 +140,10 @@ global_settings:
   # 推理相关参数 (infer.py 使用)
   infer:
     model_path:                     # 推理时使用的模型路径 (通常通过命令行 --model_path 或在此指定最佳模型的相对路径)
-    image_path:                     # 待识别的单张输入图像路径 (通常通过命令行 --image_path 或在此指定)
+    image_path: data/face/一张刚拍的照片.jpg                    # 待识别的单张输入图像路径 (通常通过命令行 --image_path 或在此指定)
     label_file: readme.json         # 类别标签文件路径 (通常相对于 data_dir/class_name/)
     face_library_path:              # ArcFace 人脸特征库文件路径 (.pkl) (通常与模型文件同目录)
-    recognition_threshold: 0.5      # ArcFace 人脸识别相似度阈值 (0.5-0.8 是常见范围，根据实际验证集效果调整)
+    recognition_threshold: 0.8      # ArcFace 人脸识别相似度阈值 (0.5-0.8 是常见范围，根据实际验证集效果调整)
     infer_visualize: True           # 是否可视化推理结果
     display_model_info: True        # 推理结果可视化时是否显示模型信息 (模型类型, 损失类型)
     display_inference_time: True    # 推理结果可视化时是否显示推理耗时

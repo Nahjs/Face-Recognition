@@ -189,7 +189,7 @@ def load_config(default_yaml_path: str, cmd_args_namespace: argparse.Namespace) 
 
     full_yaml_config = {}
     if yaml_file_to_load and os.path.exists(yaml_file_to_load):
-        print(f"从 YAML 文件加载配置: {yaml_file_to_load}")
+        # print(f"从 YAML 文件加载配置: {yaml_file_to_load}") # 注释掉
         try:
             with open(yaml_file_to_load, 'r', encoding='utf-8') as f:
                 loaded_yaml = yaml.safe_load(f)
@@ -220,7 +220,7 @@ def load_config(default_yaml_path: str, cmd_args_namespace: argparse.Namespace) 
     if active_config_name_to_use:
         active_config_block = full_yaml_config.get(active_config_name_to_use)
         if active_config_block and isinstance(active_config_block, dict):
-            print(f"加载并合并活动配置块: {active_config_name_to_use}")
+            # print(f"加载并合并活动配置块: {active_config_name_to_use}") # 注释掉
             merged_config_dict = deep_update(merged_config_dict, active_config_block)
         elif active_config_block:
              print(f"警告: 活动配置块 '{active_config_name_to_use}' 的值不是一个有效的配置字典，已忽略。")
@@ -231,11 +231,30 @@ def load_config(default_yaml_path: str, cmd_args_namespace: argparse.Namespace) 
     else:
         print("提示: 未指定 active_config。将仅使用全局设置（如果存在）和命令行参数。")
     
+    # 步骤 3.5 (新增): 如果指定了 active_infer_config，将其参数合并到最终配置中 (最高优先级)
+    cmd_active_infer_config = getattr(cmd_args_namespace, 'active_infer_config', None)
+    active_infer_config_name_to_use = cmd_active_infer_config
+    if active_infer_config_name_to_use is None:
+        active_infer_config_name_to_use = full_yaml_config.get('active_infer_config')
+
+    if active_infer_config_name_to_use:
+        infer_config_block = full_yaml_config.get(active_infer_config_name_to_use)
+        if infer_config_block and isinstance(infer_config_block, dict):
+            # print(f"加载并合并推理活动配置块: {active_infer_config_name_to_use}") # 注释掉
+            # 深层合并推理配置，覆盖之前的设置
+            merged_config_dict = deep_update(merged_config_dict, infer_config_block)
+        elif infer_config_block:
+            print(f"警告: 推理活动配置块 '{active_infer_config_name_to_use}' 的值不是一个有效的配置字典，已忽略。")
+        elif full_yaml_config:
+            print(f"警告: 在YAML中找不到名为 '{active_infer_config_name_to_use}' 的推理配置块。")
+    elif cmd_active_infer_config:
+        print(f"警告: 命令行指定的 active_infer_config '{cmd_active_infer_config}' 在YAML中找不到。")
+    
     # 步骤 4: 合并命令行参数 (最高优先级)
     cmd_args_dict = vars(cmd_args_namespace)
     final_merged_config = merged_config_dict # 从已合并YAML配置开始
 
-    print("--- 合并命令行参数 (覆盖YAML) ---")
+    # print("--- 合并命令行参数 (覆盖YAML) ---") # 注释掉
     for key, cmd_value in cmd_args_dict.items():
         # 跳过仅用于加载过程的参数
         if key in ['config_path', 'active_config']:
@@ -249,13 +268,13 @@ def load_config(default_yaml_path: str, cmd_args_namespace: argparse.Namespace) 
             
             # 直接覆盖或添加
             final_merged_config[key] = cmd_value
-            print(f"  配置项 '{key}' 已被命令行值覆盖: {cmd_value}")
+            # print(f"  配置项 '{key}' 已被命令行值覆盖: {cmd_value}") # 注释掉
         # 如果命令行参数是 None，我们不覆盖已有的值
         # 但如果这个键之前完全不存在，可以考虑添加（虽然 argparse 通常会处理默认值）
         elif key not in final_merged_config:
              final_merged_config[key] = cmd_value # 添加 YAML 中没有但命令行中为 None 的键
-             print(f"  配置项 '{key}' (值为None) 已从命令行添加。")
-    print("-----------------------------------")
+             # print(f"  配置项 '{key}' (值为None) 已从命令行添加。") # 注释掉
+    # print("-----------------------------------") # 注释掉
 
     # 将最终合并的字典转换为ConfigObject实例
     final_config_obj = ConfigObject(final_merged_config)
@@ -263,9 +282,14 @@ def load_config(default_yaml_path: str, cmd_args_namespace: argparse.Namespace) 
     if active_config_name_to_use:
         # Use __setattr__ to set the internal attribute
         final_config_obj._active_config_name = active_config_name_to_use
+        final_config_obj.active_config = active_config_name_to_use # Make it accessible at top level
+    
+    # NEW: Store the active_infer_config_name at the top level for infer.py to use
+    if active_infer_config_name_to_use: # 检查 active_infer_config_name_to_use 是否有值
+        final_config_obj.active_infer_config = active_infer_config_name_to_use
     
     # 打印最终生效的配置项，方便调试和确认
-    print("--- 最终生效的配置项 ---")
+    # print("--- 最终生效的配置项 ---") # 注释掉
     def _print_config_recursively(item: dict, indent_level: int = 0):
         """内部辅助函数，递归打印配置项，保持缩进美观。"""
         indent_str = "  " * indent_level
@@ -281,7 +305,7 @@ def load_config(default_yaml_path: str, cmd_args_namespace: argparse.Namespace) 
                 print(f"{indent_str}{k}: {v}")
     
     # Pass the ConfigObject itself to the print function
-    _print_config_recursively(final_config_obj, indent_level=1) 
-    print("-----------------------------------------")
+    # _print_config_recursively(final_config_obj, indent_level=1) # 注释掉
+    # print("-----------------------------------------") # 注释掉
 
     return final_config_obj

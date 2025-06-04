@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 import pickle # 用于加载ArcFace模型所需的人脸特征库 (.pkl文件)
 from config_utils import load_config, ConfigObject # 导入配置加载工具和配置对象类型
 from model_factory import get_backbone, get_head   # 导入模型工厂函数
-from utils.image_processing import process_image_local # 从共享模块导入
+from utils.image_processing import process_image # 从共享模块导入
 import time # 导入 time 模块
 import platform # 导入 platform 模块用于判断操作系统
 from datetime import datetime # 导入 datetime 模块
@@ -88,12 +88,12 @@ def _process_frame_and_infer(frame: np.ndarray, config: ConfigObject, id_to_clas
     image_std = config.dataset_params.std
     
     # 对图像进行预处理
-    preprocessed_image_np = process_image_local(
+    preprocessed_image_np = process_image(
         img_data=frame_rgb, # 直接传递 numpy 数组
         target_size=loaded_image_size,
         mean_rgb=image_mean,
         std_rgb=image_std,
-        is_bgr=False # 传入的已经是RGB
+        is_bgr_input=False # 传入的已经是RGB
     )
     img_tensor = paddle.to_tensor(preprocessed_image_np)
 
@@ -160,21 +160,21 @@ def _process_frame_and_infer(frame: np.ndarray, config: ConfigObject, id_to_clas
         img_display = frame.copy() # 复制原始帧进行标注
         
         text_lines = []
-        text_lines.append(f"名称: {predicted_label_name}")
+        text_lines.append(f"Name: {predicted_label_name}")
         if config.infer.get('display_confidence', True):
             if loaded_loss_type == 'arcface':
-                text_lines.append(f"相似度: {confidence_or_similarity:.4f}")
+                text_lines.append(f"Similarity: {confidence_or_similarity:.4f}")
             else:
-                text_lines.append(f"置信度: {confidence_or_similarity:.4f}")
+                text_lines.append(f"Confidence: {confidence_or_similarity:.4f}")
         if config.infer.get('display_inference_time', True):
-            text_lines.append(f"耗时: {inference_duration:.4f}s")
+            text_lines.append(f"Time: {inference_duration:.4f}s")
         if config.infer.get('display_model_info', True):
-            text_lines.append(f"模型: {loaded_model_type.upper()} ({loaded_loss_type.upper()})")
+            text_lines.append(f"Model: {loaded_model_type.upper()} ({loaded_loss_type.upper()})")
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.6
-        thickness = 1
-        line_height = int(cv2.getTextSize("测试", font, font_scale, thickness)[0][1] * 1.5) 
+        font_scale = 1.0 # 增大字体大小
+        thickness = 2    # 增大字体粗细
+        line_height = int(cv2.getTextSize("Test", font, font_scale, thickness)[0][1] * 1.5) 
         text_x = 10
         text_y_start = line_height 
 
@@ -205,29 +205,23 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
     use_gpu_flag = cmd_args.use_gpu if cmd_args.use_gpu is not None else config.use_gpu
     use_gpu_flag = use_gpu_flag and paddle.is_compiled_with_cuda()
     paddle.set_device('gpu' if use_gpu_flag else 'cpu')
-    print(f"使用 {'GPU' if use_gpu_flag else 'CPU'} 进行推理")
 
     # --- 确定模型和特征库路径 (基于 active_infer_config 或命令行) ---
-    logs_base_dir = config.global_settings.get('visualdl_log_dir', 'logs')
+    logs_base_dir = config.get('visualdl_log_dir', 'logs')
 
-    # 获取当前推理的配置类型，从配置文件中 active_infer_config 字段读取
-    active_infer_config_name = config.get('active_infer_config', None)
-    
+    # 获取当前推理的配置类型，从命令行或配置文件中 active_infer_config 字段读取
+    active_infer_config_name = cmd_args.active_infer_config # 优先从命令行参数获取
     if active_infer_config_name is None:
-        print("警告: 未指定 'active_infer_config'，将尝试使用全局默认模型和损失类型。")
-        infer_model_type = config.global_settings.get('model_type')
-        infer_loss_type = config.global_settings.get('loss_type')
-        infer_optimizer_type = config.global_settings.get('optimizer_type')
-        infer_lr_scheduler_type = config.global_settings.get('lr_scheduler_type')
-    else:
-        # 直接从根配置对象中获取与 active_infer_config_name 对应的配置块
-        infer_config_block = config.get(active_infer_config_name)
-        if infer_config_block is None:
-            raise ValueError(f"错误: 在顶层配置中找不到名为 '{active_infer_config_name}' 的配置块。请检查 active_infer_config 的值。")
-        infer_model_type = infer_config_block.get('model_type')
-        infer_loss_type = infer_config_block.get('loss_type')
-        infer_optimizer_type = infer_config_block.get('optimizer_type')
-        infer_lr_scheduler_type = infer_config_block.get('lr_scheduler_type')
+        # 如果命令行未指定，则从配置文件中获取 (config_utils.py 已确保其存在于顶层)
+        active_infer_config_name = config.get('active_infer_config', None)
+
+    # 所有的模型、损失、优化器、学习率调度器类型都已在 load_config 中处理，
+    # 并扁平化到 config 对象的顶层。
+    # 因此，无论是否指定了 active_infer_config，直接从 config 对象获取即可。
+    infer_model_type = config.get('model_type')
+    infer_loss_type = config.get('loss_type')
+    infer_optimizer_type = config.get('optimizer_type')
+    infer_lr_scheduler_type = config.get('lr_scheduler_type')
     
     if not all([infer_model_type, infer_loss_type, infer_optimizer_type, infer_lr_scheduler_type]):
         raise ValueError("错误: 无法确定用于推理的模型类型、损失类型、优化器类型或学习率调度器类型。请检查 active_infer_config 或 global_settings。")
@@ -235,17 +229,22 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
     # 动态构建模型组合目录名称，用于查找模型和特征库
     # 假设模型保存路径模式为 logs/{model_type}__{loss_type}__{optimizer}__{scheduler}__{lr_formatted}__{wd_formatted}/{timestamp}/checkpoints/best_model_model_checkpoint.pdparams
     # 需要从 config 中获取 learning_rate 和 weight_decay 来构建完整的目录名
-    lr_value = config.global_settings.get('learning_rate', 0.001)
-    wd_value = config.global_settings.optimizer_params.get('weight_decay', 0.0) if hasattr(config.global_settings, 'optimizer_params') else 0.0
+    lr_value = config.get('learning_rate', 0.001)
+    wd_value = config.optimizer_params.get('weight_decay', 0.0) if hasattr(config, 'optimizer_params') else 0.0
 
     lr_formatted = f"lr{str(lr_value).replace('0.', '')}"
     wd_formatted = f"wd{str(wd_value).replace('0.', '')}"
     
     # 构建训练脚本使用的完整组合目录名称前缀
     # 注意：这里假设 infer.py 会查找与某个训练配置完全匹配的模型目录
-    target_combo_dir_prefix = f"{infer_model_type}__{infer_loss_type}__{infer_optimizer_type}__{infer_lr_scheduler_type}__{lr_formatted}__{wd_formatted}"
+    if active_infer_config_name:
+        # 如果指定了 active_infer_config，直接使用其名称作为目标目录前缀
+        target_combo_dir_prefix = active_infer_config_name
+    else:
+        # 否则，根据参数构建组合目录前缀
+        target_combo_dir_prefix = f"{infer_model_type}__{infer_loss_type}__{infer_optimizer_type}__{infer_lr_scheduler_type}__{lr_formatted}__{wd_formatted}"
     
-    print(f"信息: 正在搜索匹配的模型和特征库 (目标组合: {target_combo_dir_prefix})...")
+    print(f"正在搜索匹配的模型和特征库 (目标组合: {target_combo_dir_prefix})...")
 
     found_model_path = None
     found_face_library_path = None
@@ -266,7 +265,7 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
 
                     if os.path.exists(potential_model_path):
                         found_model_path = potential_model_path
-                        print(f"信息: 已找到匹配的模型: {found_model_path}")
+                        print(f"已找到匹配的模型: {found_model_path}")
                         
                         # 如果是 ArcFace 模型，还需要查找特征库
                         if infer_loss_type == 'arcface':
@@ -275,7 +274,7 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
                             potential_lib_path = os.path.join(os.path.dirname(found_model_path), expected_lib_filename)
                             if os.path.exists(potential_lib_path):
                                 found_face_library_path = potential_lib_path
-                                print(f"信息: 已找到匹配的特征库: {found_face_library_path}")
+                                print(f"已找到匹配的特征库: {found_face_library_path}")
                             else:
                                 print(f"警告: ArcFace 模型 {found_model_path} 找到了，但预期的特征库 {potential_lib_path} 未找到。请确保已运行 create_face_library.py。")
                         break # 找到最新模型，跳出时间戳循环
@@ -289,96 +288,151 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
     if not os.path.exists(model_weights_path):
         raise FileNotFoundError(f"错误: 指定的模型权重文件未找到: {model_weights_path}")
 
-    # 命令行参数 face_library_path 优先级最高
-    face_lib_path = cmd_args.face_library_path or found_face_library_path
-    if infer_loss_type == 'arcface' and not face_lib_path:
-        raise ValueError("错误: ArcFace 模型推理需要人脸特征库，但未能找到或指定。请确保已运行 create_face_library.py，或者通过 --face_library_path 指定。")
-    if infer_loss_type == 'arcface' and not os.path.exists(face_lib_path):
-        raise FileNotFoundError(f"错误: ArcFace 模型推理指定的特征库文件未找到: {face_lib_path}")
-    
     print(f"将从模型文件 {model_weights_path} 加载模型。")
+
+    loaded_face_library_features = None
+    loaded_face_library_labels = None
+    
+    # 只有当损失类型是 ArcFace 时，才需要处理特征库
     if infer_loss_type == 'arcface':
-        print(f"将从特征库文件 {face_lib_path} 加载人脸特征库。")
+        # 命令行参数 face_library_path 优先级最高
+        face_lib_path_candidate = cmd_args.face_library_path or found_face_library_path
 
-    # --- 尝试从模型元数据加载配置 (保留此逻辑，它更精确) ---
-    loaded_model_type = None
-    loaded_loss_type = None
-    loaded_image_size = None
-    loaded_num_classes = None
-    loaded_model_specific_params = {}
-    loaded_loss_specific_params = {}
-    source_of_config = "" # 用于记录最终配置的来源
+        if not face_lib_path_candidate:
+            print("\n错误: ArcFace 模型推理需要人脸特征库，但未能找到或指定。\n")
+            print("请尝试运行以下命令来创建特征库 (如果您的模型已经训练完成):\n")
+            # 确保 cmd_args.config_path 属性安全访问
+            config_path_for_cmd = getattr(cmd_args, 'config_path', 'configs/48_config.yaml')
+            suggested_cmd = (
+                f"python create_face_library.py "
+                f"--config_path {config_path_for_cmd} "
+                f"--active_config {active_infer_config_name} "
+                f"--model_path {model_weights_path}" # 使用实际确定的模型路径
+            )
+            print(f"\n   {suggested_cmd}\n")
+            raise ValueError("ArcFace 模型推理需要特征库。")
 
+        if not os.path.exists(face_lib_path_candidate):
+            print(f"\n错误: ArcFace 模型推理指定的特征库文件未找到: {face_lib_path_candidate}\n")
+            print("请检查文件路径是否正确，或者尝试运行以下命令来创建特征库 (如果您的模型已经训练完成):\n")
+            config_path_for_cmd = getattr(cmd_args, 'config_path', 'configs/48_config.yaml')
+            suggested_cmd = (
+                f"python create_face_library.py "
+                f"--config_path {config_path_for_cmd} "
+                f"--active_config {active_infer_config_name} "
+                f"--model_path {model_weights_path}"
+            )
+            print(f"\n   {suggested_cmd}\n")
+            raise FileNotFoundError("ArcFace 模型推理指定的特征库文件未找到。")
+        
+        print(f"将从特征库文件 {face_lib_path_candidate} 加载人脸特征库。")
+        try:
+            with open(face_lib_path_candidate, 'rb') as f:
+                feature_library_data = pickle.load(f)
+            loaded_face_library_features = paddle.to_tensor(feature_library_data[0], dtype='float32') # numpy array to Paddle Tensor
+            loaded_face_library_labels = feature_library_data[1].tolist() # numpy array to list
+            print(f"人脸特征库 {face_lib_path_candidate} 加载成功 (包含 {loaded_face_library_features.shape[0]} 个特征)。")
+        except Exception as e:
+            raise RuntimeError(f"加载人脸特征库 {face_lib_path_candidate} 失败: {e}")
+    # End of ArcFace-specific feature library loading
+
+    # --- 尝试从模型元数据加载配置 (作为模型构建的权威来源) ---
+    model_type_from_metadata = None
+    loss_type_from_metadata = None
+    image_size_from_metadata = None
+    num_classes_from_metadata = None
+    model_specific_params_from_metadata = {}
+    loss_specific_params_from_metadata = {}
+    
     metadata_path = model_weights_path.replace('.pdparams', '.json')
+    source_of_model_config = ""
+
     if os.path.exists(metadata_path):
         try:
             with open(metadata_path, 'r', encoding='utf-8') as f:
                 metadata = json.load(f)
-            # Prefer metadata values if available and valid
+            
+            # 严格检查并从元数据加载所有模型构建所需的核心参数
             if metadata.get('model_type') and metadata.get('loss_type') and \
                metadata.get('image_size') is not None and metadata.get('num_classes') is not None:
-                loaded_model_type = metadata['model_type']
-                loaded_loss_type = metadata['loss_type']
-                loaded_image_size = metadata['image_size']
-                loaded_num_classes = metadata['num_classes']
-                loaded_model_specific_params = metadata.get('model_specific_params', {}) if isinstance(metadata.get('model_specific_params'), dict) else {}
-                loaded_loss_specific_params = metadata.get('loss_specific_params', {}) if isinstance(metadata.get('loss_specific_params'), dict) else {}
-                source_of_config = f"元数据文件 ({metadata_path})"
-                print(f"信息: 已从元数据文件 {metadata_path} 加载完整模型配置。")
+                model_type_from_metadata = metadata['model_type']
+                loss_type_from_metadata = metadata['loss_type']
+                image_size_from_metadata = metadata['image_size']
+                num_classes_from_metadata = metadata['num_classes']
+                
+                # 安全地获取嵌套的参数字典
+                model_specific_params_from_metadata = metadata.get('model_specific_params', {})
+                if not isinstance(model_specific_params_from_metadata, dict): # Ensure it's a dict
+                    model_specific_params_from_metadata = {}
+
+                loss_specific_params_from_metadata = metadata.get('loss_specific_params', {})
+                if not isinstance(loss_specific_params_from_metadata, dict): # Ensure it's a dict
+                    loss_specific_params_from_metadata = {}
+
+                source_of_model_config = f"元数据文件 ({metadata_path})"
+                print(f"已成功从元数据文件 {metadata_path} 加载模型构建参数。")
             else:
-                print(f"警告: 模型元数据文件 {metadata_path} 不完整，缺少核心配置项。将回退到 active_infer_config 或全局配置。")
+                print(f"警告: 模型元数据文件 {metadata_path} 不完整，缺少核心配置项。将回退到YAML配置。")
         except Exception as e:
-            print(f"警告: 加载或解析模型元数据文件 {metadata_path} 失败: {e}。将回退。")
-    
-    # 如果元数据加载失败或不完整，回退到 active_infer_config 或 global_settings
-    if not loaded_model_type:
-        loaded_model_type = infer_model_type
-        loaded_loss_type = infer_loss_type
-        loaded_image_size = config.global_settings.image_size # 从 global_settings 获取
-        loaded_num_classes = config.global_settings.num_classes # 从 global_settings 获取
-        # 从当前配置加载详细参数
-        # 注意：这里应该从 infer_config_block 获取，而不是 global_settings
-        if active_infer_config_name:
-            backbone_params_obj = config.get(active_infer_config_name).model.get(f'{loaded_model_type}_params', ConfigObject({}))
-            head_params_obj = config.get(active_infer_config_name).loss.get(f'{loaded_loss_type}_params', ConfigObject({}))
-        else: # Fallback to global_settings if active_infer_config_name is None
-            backbone_params_obj = config.global_settings.model.get(f'{loaded_model_type}_params', ConfigObject({}))
-            head_params_obj = config.global_settings.loss.get(f'{loaded_loss_type}_params', ConfigObject({}))
+            print(f"警告: 加载或解析模型元数据文件 {metadata_path} 失败: {e}。将回退到YAML配置。")
 
-
-        loaded_model_specific_params = backbone_params_obj.to_dict() if isinstance(backbone_params_obj, ConfigObject) else backbone_params_obj
+    # 如果元数据加载不成功或不完整，则回退到YAML配置 (全局设置或 active_infer_config)
+    if not model_type_from_metadata:
+        print("信息: 未能从模型元数据加载完整的模型构建参数，将使用YAML配置作为补充或主要来源。")
+        # 从当前ConfigObject获取参数，这些参数已经过优先级合并
+        model_type_to_use = config.get('model_type')
+        loss_type_to_use = config.get('loss_type')
+        image_size_to_use = config.get('image_size')
+        num_classes_to_use = config.get('num_classes')
         
-        loaded_loss_specific_params = head_params_obj.to_dict() if isinstance(head_params_obj, ConfigObject) else head_params_obj
-        source_of_config = f"YAML 配置 ({active_infer_config_name or 'global_settings'})"
-        if not all([loaded_model_type, loaded_loss_type, loaded_image_size is not None, loaded_num_classes is not None]):
-             raise ValueError("错误: 无法从配置文件中确定模型构建所需的核心配置。请检查 active_infer_config 或 global_settings。")
-
-    print(f"--- 模型构建配置来源: {source_of_config} ---")
-    print(f"  Model Type: {loaded_model_type}")
-    print(f"  Loss Type: {loaded_loss_type}")
-    print(f"  Image Size: {loaded_image_size}")
-    print(f"  Num Classes: {loaded_num_classes}")
-    print(f"  Model Params: {loaded_model_specific_params}")
-    print(f"  Loss Params: {loaded_loss_specific_params}")
+        # 从ConfigObject中获取嵌套参数，确保是字典
+        backbone_params_obj = config.model.get(f'{model_type_to_use}_params', ConfigObject({}))
+        model_specific_params_to_use = backbone_params_obj.to_dict() if isinstance(backbone_params_obj, ConfigObject) else backbone_params_obj
+        
+        head_params_obj = config.loss.get(f'{loss_type_to_use}_params', ConfigObject({}))
+        loss_specific_params_to_use = head_params_obj.to_dict() if isinstance(head_params_obj, ConfigObject) else head_params_obj
+        
+        source_of_model_config = f"YAML 配置 ({config.get('active_infer_config', 'global_settings')})"
+        print(f"信息: 模型参数的最终来源或补充来源: {source_of_model_config}")
+        
+        # Final check for essential parameters after fallback
+        if not all([model_type_to_use, loss_type_to_use, image_size_to_use is not None, num_classes_to_use is not None]):
+             raise ValueError("错误: 无法从元数据或YAML配置中确定模型构建所需的核心配置。请检查模型文件和配置。")
+    else: # Metadata was successfully loaded and complete
+        model_type_to_use = model_type_from_metadata
+        loss_type_to_use = loss_type_from_metadata
+        image_size_to_use = image_size_from_metadata
+        num_classes_to_use = num_classes_from_metadata
+        model_specific_params_to_use = model_specific_params_from_metadata
+        loss_specific_params_to_use = loss_specific_params_from_metadata
+        print(f"信息: 模型参数已成功从元数据 ({source_of_model_config}) 确定。")
+        
+    print(f"--- 模型构建配置来源: {source_of_model_config} ---")
+    print(f"  Model Type: {model_type_to_use}")
+    print(f"  Loss Type: {loss_type_to_use}")
+    print(f"  Image Size: {image_size_to_use}")
+    print(f"  Num Classes: {num_classes_to_use}")
+    print(f"  Model Params: {model_specific_params_to_use}")
+    print(f"  Loss Params: {loss_specific_params_to_use}")
     print("--------------------------------------------------")
 
     # --- 构建模型 ---
     model_backbone, backbone_out_dim = get_backbone(
-        config_model_params=loaded_model_specific_params, 
-        model_type_str=loaded_model_type,
-        image_size=loaded_image_size
+        config_model_params=model_specific_params_to_use, 
+        model_type_str=model_type_to_use,
+        image_size=image_size_to_use
     )
-    print(f"骨干网络 ({loaded_model_type.upper()}) 构建成功，期望输入图像尺寸: {loaded_image_size}, 输出特征维度: {backbone_out_dim}")
+    print(f"骨干网络 ({model_type_to_use.upper()}) 构建成功，期望输入图像尺寸: {image_size_to_use}, 输出特征维度: {backbone_out_dim}")
 
     model_head = None
-    if loaded_loss_type == 'cross_entropy': 
+    if loss_type_to_use == 'cross_entropy': 
         model_head = get_head(
-            config_loss_params=loaded_loss_specific_params, 
-            loss_type_str=loaded_loss_type,
+            config_loss_params=loss_specific_params_to_use, 
+            loss_type_str=loss_type_to_use,
             in_features=backbone_out_dim,
-            num_classes=loaded_num_classes
+            num_classes=num_classes_to_use
         )
-        print(f"头部模块 ({loaded_loss_type.upper()}) 构建成功，输入特征维度: {backbone_out_dim}, 输出类别数: {loaded_num_classes}")
+        print(f"头部模块 ({loss_type_to_use.upper()}) 构建成功，输入特征维度: {backbone_out_dim}, 输出类别数: {num_classes_to_use}")
 
     # --- 加载模型权重 ---
     full_state_dict = paddle.load(model_weights_path)
@@ -398,19 +452,17 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
         head_state_dict = {k.replace('head.', '', 1): v for k, v in full_state_dict.items() if k.startswith('head.')}
         if head_state_dict:
             model_head.set_state_dict(head_state_dict)
-            print(f"头部模块 ({loaded_loss_type}) 权重从 {model_weights_path} 加载成功。")
+            print(f"头部模块 ({loss_type_to_use}) 权重从 {model_weights_path} 加载成功。")
         else:
-            print(f"警告: 头部模块 ({loaded_loss_type}) 已实例化，但在模型文件 {model_weights_path} 中未找到 'head.' 前缀的权重。头部将使用其默认初始化权重。")
+            print(f"警告: 头部模块 ({loss_type_to_use}) 已实例化，但在模型文件 {model_weights_path} 中未找到 'head.' 前缀的权重。头部将使用其默认初始化权重。")
 
     model_backbone.eval()
     if model_head:
         model_head.eval()
 
     # --- 加载类别标签文件 ---
-    label_file_path = None
-    source_for_label_file = None
-    
-    label_file_to_load = cmd_args.label_file or config.infer.get('label_file', 'readme.json')
+    label_file_from_cmd = getattr(cmd_args, 'label_file', None)
+    label_file_to_load = label_file_from_cmd or config.infer.get('label_file', 'readme.json')
     actual_label_file_path = os.path.join(config.data_dir, config.class_name, label_file_to_load)
     if not os.path.exists(actual_label_file_path):
          raise FileNotFoundError(f"错误: 类别标签文件 {actual_label_file_path} 未找到。")
@@ -425,23 +477,6 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
         print(f"类别标签文件 {actual_label_file_path} 加载成功 ({len(id_to_class_map)} 个类别)。")
     except Exception as e:
         raise RuntimeError(f"加载或解析类别标签文件 {actual_label_file_path} 失败: {e}")
-
-    # --- 加载人脸特征库 (如果需要) ---
-    loaded_face_library_features = None
-    loaded_face_library_labels = None
-    if loaded_loss_type == 'arcface':
-        if not face_lib_path:
-            raise ValueError("错误: ArcFace模式需要人脸特征库路径，但未指定。")
-
-        print(f"正在加载人脸特征库文件: {face_lib_path}")
-        try:
-            with open(face_lib_path, 'rb') as f:
-                feature_library_data = pickle.load(f)
-            loaded_face_library_features = paddle.to_tensor(feature_library_data[0], dtype='float32') # numpy array to Paddle Tensor
-            loaded_face_library_labels = feature_library_data[1].tolist() # numpy array to list
-            print(f"人脸特征库 {face_lib_path} 加载成功 (包含 {loaded_face_library_features.shape[0]} 个特征)。")
-        except Exception as e:
-            raise RuntimeError(f"加载人脸特征库 {face_lib_path} 失败: {e}")
 
     # --- 执行推理 --- 
     if cmd_args.live_capture:
@@ -468,9 +503,9 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
                     frame=frame,
                     config=config,
                     id_to_class_map=id_to_class_map,
-                    loaded_model_type=loaded_model_type,
-                    loaded_loss_type=loaded_loss_type,
-                    loaded_image_size=loaded_image_size,
+                    loaded_model_type=model_type_to_use,
+                    loaded_loss_type=loss_type_to_use,
+                    loaded_image_size=image_size_to_use,
                     backbone_instance=model_backbone,
                     head_module_instance=model_head,
                     library_features=loaded_face_library_features,
@@ -492,7 +527,6 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
                         print(f"信息: 实时推理结果图像已保存到: {output_path}")
 
                 if cv2.waitKey(1) & 0xFF == ord('q'): # 按 'q' 键退出
-                    print("信息: 检测到 'q' 键，退出实时捕获。")
                     break
 
         finally:
@@ -513,9 +547,9 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
             frame=img_to_infer,
             config=config,
             id_to_class_map=id_to_class_map,
-            loaded_model_type=loaded_model_type,
-            loaded_loss_type=loaded_loss_type,
-            loaded_image_size=loaded_image_size,
+            loaded_model_type=model_type_to_use,
+            loaded_loss_type=loss_type_to_use,
+            loaded_image_size=image_size_to_use,
             backbone_instance=model_backbone,
             head_module_instance=model_head,
             library_features=loaded_face_library_features,
@@ -523,13 +557,21 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
             recognition_threshold=config.infer.get('recognition_threshold', 0.5)
         )
 
+        # ---- 新增打印，确保 acceptance.sh 可以捕获 ----
+        print(f"Name: {pred_name}")
+        if loss_type_to_use == 'arcface':
+            print(f"Similarity: {conf_sim:.4f}")
+        else: # Assuming cross_entropy or similar
+            print(f"Confidence: {conf_sim:.4f}")
+        # ---- 结束新增打印 ----
+
         if processed_img is not None:
             # 单图模式下直接保存结果
             results_dir = "results"
             os.makedirs(results_dir, exist_ok=True)
             
             base_img_name = os.path.splitext(os.path.basename(target_image_path))[0]
-            model_name_tag = f"{loaded_model_type}_{loaded_loss_type}"
+            model_name_tag = f"{model_type_to_use}_{loss_type_to_use}"
             output_filename = f"infer_{model_name_tag}_{base_img_name}_{pred_name.replace(' ', '_')}.png"
             output_path = os.path.join(results_dir, output_filename)
             
@@ -539,6 +581,7 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
     print("推理完成。")
 
 if __name__ == '__main__':
+    print("信息: 主程序块开始，准备解析命令行参数。")
     parser = argparse.ArgumentParser(description='人脸识别单图推理脚本')
     
     parser.add_argument('--config_path', type=str, default='configs/48_config.yaml', # 将默认配置文件路径改为 48_config.yaml
@@ -586,24 +629,19 @@ if __name__ == '__main__':
         cmd_args_namespace=cmd_line_args
     )
 
+    print(f"信息: infer函数内, 使用的 active_infer_config 名称: {cmd_line_args.active_infer_config}")
+
     # 检查关键路径是否已配置
     if not cmd_line_args.live_capture and (not cmd_line_args.image_path and not final_config.infer.get('image_path')):
         parser.error("错误: 缺少待识别图像路径。在非实时捕获模式下，必须通过 --image_path 命令行参数或在YAML配置文件中提供 image_path。")
     
     # 即使在实时捕获模式下，如果 active_infer_config 未指定，仍需要模型类型和损失类型来自动加载模型
-    if not final_config.get('active_infer_config') and not (final_config.global_settings.get('model_type') and final_config.global_settings.get('loss_type')):
+    if not final_config.get('active_infer_config') and not (final_config.get('model_type') and final_config.get('loss_type')):
         parser.error("错误: 无法确定用于推理的模型类型或损失类型。请在 YAML 中设置 active_infer_config 或 global_settings.model_type/loss_type。")
-
-    # 尝试设置matplotlib中文字体，以便在可视化结果中正确显示中文名称
-    try:
-        plt.rcParams['font.sans-serif'] = ['SimHei'] 
-        plt.rcParams['axes.unicode_minus'] = False  
-    except Exception as e_font:
-        print(f"提示: 设置matplotlib中文字体SimHei失败: {e_font}。可视化结果中的中文可能显示为乱码。")
-        print(f"       请确保系统中安装了SimHei字体，或者在代码中指定其他可用的中文字体。")
 
     # 执行推理
     try:
+        print(f"信息: 即将调用 infer() 函数处理推理任务。")
         infer(final_config, cmd_line_args)
     except FileNotFoundError as e:
         print(f"错误: 推理失败: {e}")

@@ -36,12 +36,10 @@ import model_factory
 matplotlib.use('Agg')  # 使用非交互式后端，防止在无显示环境的服务器上出错
 import matplotlib.pyplot as plt
 import paddle
-# from vgg import VGGFace         # 导入VGG模型 # 已移除
-# from resnet_new import ResNetFace, ArcFaceHead # 导入新版ResNet模型和ArcFaceHead # 已移除
-# from infer import process_image # Removed to avoid circular dependency, use local or utils
-from config_utils import load_config, ConfigObject # 导入配置加载工具和配置对象类型
-from model_factory import get_backbone # 只需要骨干网络，头部不用于特征提取
-from utils.image_processing import process_image_local # 从共享模块导入
+import paddle.nn.functional as F # 用于余弦相似度计算
+from config_utils import load_config, ConfigObject
+from model_factory import get_backbone
+from utils.image_processing import process_image # 从共享模块导入
 
 # 全局变量，用于在 compare_faces 和 show_comparison_result 之间传递模型训练时的配置信息，
 # 以便在保存结果图像时，文件名能反映所用模型的类型。
@@ -261,8 +259,10 @@ def compare_faces(config: ConfigObject, cmd_args: argparse.Namespace):
     image_mean = config.dataset_params.mean
     image_std = config.dataset_params.std
 
-    img1_processed = process_image_local(cmd_args.img1_path, target_size=loaded_image_size, mean_rgb=image_mean, std_rgb=image_std)
-    img2_processed = process_image_local(cmd_args.img2_path, target_size=loaded_image_size, mean_rgb=image_mean, std_rgb=image_std)
+    print(f"正在处理图片: {cmd_args.img1_path}")
+    img1_processed = process_image(img_path=cmd_args.img1_path, target_size=loaded_image_size, mean_rgb=image_mean, std_rgb=image_std, is_bgr_input=True)
+    print(f"正在处理图片: {cmd_args.img2_path}")
+    img2_processed = process_image(img_path=cmd_args.img2_path, target_size=loaded_image_size, mean_rgb=image_mean, std_rgb=image_std, is_bgr_input=True)
 
     img1_tensor = paddle.to_tensor(img1_processed)
     img2_tensor = paddle.to_tensor(img2_processed)

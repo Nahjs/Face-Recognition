@@ -37,9 +37,6 @@ results/
 # Log files
 *.log
 logs/
-logs1/
-logs2/
-logs-泛化能力不足/
 logs_Terminal/
 
 # OS generated files
@@ -75,4 +72,4 @@ MANIFEST
 *.manifest
 *.spec
 
-指南/
+single_image_comparison_results/
