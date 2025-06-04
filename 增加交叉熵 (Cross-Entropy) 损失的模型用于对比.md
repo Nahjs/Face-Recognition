@@ -1,6 +1,0 @@
-ArcFace 是一种度量学习损失，旨在最大化类间距离和最小化类内距离，特别适合人脸识别这种需要特征判别力的任务。而交叉熵是一种标准的分类损失。对比这两种不同性质的损失函数，能更全面地评估哪种方法最适合您的特定数据集和任务。
-自动训练脚本很方便，我们可以增加以下四种交叉熵组合，使总模型数达到 8 种，提供更全面的对比：
-resnet_ce_adamw_cosineannealingdecay_config
-resnet_ce_momentum_stepdecay_config
-vgg_ce_adamw_cosineannealingdecay_config
-vgg_ce_momentum_stepdecay_config
