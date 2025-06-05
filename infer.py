@@ -111,17 +111,26 @@ def _process_frame_and_infer(frame: np.ndarray, config: ConfigObject, id_to_clas
                 print("错误: ArcFace模式下，特征库未加载或为空。")
                 return frame, "无法推理", 0.0, 0.0
 
-            input_feature_vec = features.numpy().flatten()
-            similarities = np.dot(library_features, input_feature_vec) / (np.linalg.norm(library_features, axis=1) * np.linalg.norm(input_feature_vec))
+            # 归一化输入特征
+            features_normalized = F.normalize(features, axis=1) # features 是 [1, feature_dim]
+
+            # 归一化特征库中的特征
+            library_features_normalized = F.normalize(library_features, axis=1) # library_features 是 [N, feature_dim]
+
+            # 计算余弦相似度: (1, feature_dim) @ (feature_dim, N) = (1, N)
+            similarities = paddle.matmul(features_normalized, library_features_normalized.T)
+
+            # 压缩维度以获得一维张量 [N]
+            similarities = paddle.squeeze(similarities, axis=0)
+
+            best_match_idx = paddle.argmax(similarities).item() # 获取标量索引
+            confidence_or_similarity = similarities[best_match_idx].item() # 获取标量值
             
-            best_match_idx = np.argmax(similarities)
-            confidence_or_similarity = similarities[best_match_idx]
-            
-            if confidence_or_similarity >= recognition_threshold:
-                predicted_id = library_labels[best_match_idx]
-                predicted_label_name = id_to_class_map.get(str(predicted_id), f"ID_{predicted_id}_未知")
-            else:
-                predicted_label_name = "图库外人员 (低于阈值)"
+            predicted_id = library_labels[best_match_idx]
+            predicted_label_name = id_to_class_map.get(str(predicted_id), f"ID_{predicted_id}_未知")
+            # 如果相似度低于阈值，在标签后添加提示，但不改变实际预测的最高相似度标签
+            if confidence_or_similarity < recognition_threshold:
+                predicted_label_name = f"{predicted_label_name} (低于阈值)" # 仍然显示名字，但添加低于阈值的提示
             # print(f"预测: {predicted_label_name}, 余弦相似度: {confidence_or_similarity:.4f}, 阈值: {recognition_threshold}")
 
         elif loaded_loss_type == 'cross_entropy':
@@ -407,9 +416,33 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
         loss_specific_params_to_use = loss_specific_params_from_metadata
         print(f"信息: 模型参数已成功从元数据 ({source_of_model_config}) 确定。")
         
+    # NEW LOGIC: Override loss_type_to_use based on active_infer_config_name (COMBO_NAME)
+    # This assumes the COMBO_NAME always accurately reflects the intended loss type (e.g., 'ce' or 'arcface').
+    if active_infer_config_name:
+        parts = active_infer_config_name.split('_')
+        # Expecting format like 'model_type_loss_type_optimizer_scheduler_config'
+        # The loss type is usually the second part (index 1) if present and matches 'ce' or 'arcface'
+        if len(parts) > 1:
+            derived_loss_type_prefix = parts[1].lower() # Get 'ce' or 'arcface' from name prefix
+            if derived_loss_type_prefix == 'ce':
+                loss_type_to_use_final = 'cross_entropy'
+            elif derived_loss_type_prefix == 'arcface':
+                loss_type_to_use_final = 'arcface'
+            else:
+                loss_type_to_use_final = None # Unrecognized prefix
+
+            if loss_type_to_use_final: # Only override if a valid loss type is derived
+                if loss_type_to_use_final != loss_type_to_use:
+                    print(f"警告: 发现元数据/YAML中 loss_type ('{loss_type_to_use}') 与配置名称 ('{active_infer_config_name}') 不一致。将使用配置名称中的 loss_type: '{loss_type_to_use_final}'。")
+                loss_type_to_use = loss_type_to_use_final
+            else:
+                print(f"警告: 无法从配置名称 '{active_infer_config_name}' 中解析出有效的损失类型。将沿用元数据/YAML中的值: {loss_type_to_use}")
+    else:
+        print(f"警告: 未找到 active_infer_config_name，无法从名称中推断损失类型。将沿用元数据/YAML中的值: {loss_type_to_use}")
+
     print(f"--- 模型构建配置来源: {source_of_model_config} ---")
     print(f"  Model Type: {model_type_to_use}")
-    print(f"  Loss Type: {loss_type_to_use}")
+    print(f"  Loss Type: {loss_type_to_use}") # This should now be the corrected value
     print(f"  Image Size: {image_size_to_use}")
     print(f"  Num Classes: {num_classes_to_use}")
     print(f"  Model Params: {model_specific_params_to_use}")
@@ -567,13 +600,18 @@ def infer(config: ConfigObject, cmd_args: argparse.Namespace):
 
         if processed_img is not None:
             # 单图模式下直接保存结果
-            results_dir = "results"
-            os.makedirs(results_dir, exist_ok=True)
+            # 使用传入的 run_timestamp 创建子目录，如果未提供则使用当前时间
+            run_timestamp_str = cmd_args.run_timestamp if cmd_args.run_timestamp else datetime.now().strftime("%Y%m%d-%H%M%S")
+            results_base_dir = "results"
+            run_output_dir = os.path.join(results_base_dir, run_timestamp_str)
+            os.makedirs(run_output_dir, exist_ok=True)
             
             base_img_name = os.path.splitext(os.path.basename(target_image_path))[0]
             model_name_tag = f"{model_type_to_use}_{loss_type_to_use}"
-            output_filename = f"infer_{model_name_tag}_{base_img_name}_{pred_name.replace(' ', '_')}.png"
-            output_path = os.path.join(results_dir, output_filename)
+            # image_timestamp_str 用于区分同一次运行中不同图片的保存
+            image_timestamp_str = datetime.now().strftime("%Y%m%d-%H%M%S_%f")[:-3] # 毫秒级时间戳
+            output_filename = f"infer_{model_name_tag}_{image_timestamp_str}_{base_img_name}_{pred_name.replace(' ', '_')}.png"
+            output_path = os.path.join(run_output_dir, output_filename) # 保存到新的子目录
             
             cv2.imwrite(output_path, processed_img)
             print(f"信息: 推理结果图像已保存到: {output_path}")
@@ -594,6 +632,8 @@ if __name__ == '__main__':
                         help='训练好的模型文件路径 (.pdparams)。如果未指定，将根据 active_infer_config 自动搜索。') 
     parser.add_argument('--face_library_path', type=str, default=None,
                         help='[ArcFace Only] 用于比对的特征库文件 (.pkl) 的路径。如果未指定，将根据 active_infer_config 自动搜索。')
+    parser.add_argument('--run_timestamp', type=str, default=None, # 新增参数
+                        help='接受一个外部时间戳，用于创建结果输出的子目录。如果未提供，则使用当前时间。')
     
     # 新增摄像头和实时捕获参数
     parser.add_argument('--live_capture', action='store_true', 

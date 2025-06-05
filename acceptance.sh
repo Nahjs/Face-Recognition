@@ -126,7 +126,7 @@ if [ "$MODE" == "acceptance_test" ]; then
     RESULTS_CSV="${ACCEPTANCE_RESULTS_DIR}/acceptance_results_$(date +%Y%m%d-%H%M%S).csv"
 
     # Write CSV header
-    echo "Combo_Name,Timestamp,Model_Type,Loss_Type,Train_Accuracy_EpochEnd,Eval_Accuracy_EpochEnd,Acceptance_Accuracy,Recognition_Threshold,Model_Path,Metadata_Path,Feature_Library_Path,Status,Notes" > "${RESULTS_CSV}"
+    echo "Combo_Name,Timestamp,Train_Accuracy_EpochEnd,Eval_Accuracy_EpochEnd,Acceptance_Accuracy,Recognition_Threshold,Model_Path,Metadata_Path,Feature_Library_Path,Status,Notes" > "${RESULTS_CSV}"
 
     # Check for default data list files (optional, as Python scripts will check from config)
 DEFAULT_TRAIN_LIST_NAME="trainer.list"
@@ -286,7 +286,7 @@ fi
         FEATURE_LIBRARY_PATH_CSV="N/A"
         fi
 
-        echo "\"${COMBO_NAME}\",\"${TIMESTAMP}\",\"${MODEL_TYPE_FROM_META}\",\"${LOSS_TYPE_FROM_META}\",\"${TRAIN_ACC}\",\"${EVAL_ACC}\",\"${ACCEPTANCE_ACC}\",N/A,\"${MODEL_PATH}\",\"${METADATA_PATH}\",${FEATURE_LIBRARY_PATH_CSV},\"${STATUS}\",\"${NOTES}\"" >> "${RESULTS_CSV}"
+        echo "\"${COMBO_NAME}\",\"${TIMESTAMP}\",\"${TRAIN_ACC}\",\"${EVAL_ACC}\",\"${ACCEPTANCE_ACC}\",N/A,\"${MODEL_PATH}\",\"${METADATA_PATH}\",${FEATURE_LIBRARY_PATH_CSV},\"${STATUS}\",\"${NOTES}\"" >> "${RESULTS_CSV}"
         echo "--- 完成处理 ${COMBO_NAME} (状态: ${STATUS}) ---"
     done
 
@@ -307,16 +307,20 @@ elif [ "$MODE" == "compare_single_image" ]; then
     SINGLE_IMAGE_RESULTS_DIR="${PROJECT_DIR}/single_image_comparison_results"
     mkdir -p "${SINGLE_IMAGE_RESULTS_DIR}"
     SINGLE_IMAGE_CSV="${SINGLE_IMAGE_RESULTS_DIR}/single_image_comparison_results_$(date +%Y%m%d-%H%M%S).csv"
-    echo "模型组合名称,模型类型,损失类型,预测标签,分数" > "${SINGLE_IMAGE_CSV}"
+    echo "模型组合名称,预测标签,分数" > "${SINGLE_IMAGE_CSV}"
     echo "信息: 单张图片比较结果将保存到: ${SINGLE_IMAGE_CSV}"
 
     echo "--------------------------------------------------------------------------------------"
-    printf "%-40s | %-10s | %-12s | %-15s | %-10s\n" "模型组合名称" "模型类型" "损失类型" "预测标签" "分数"
+    printf "%s | %-15s | %-10s\n" "模型组合名称" "预测标签" "分数"
     echo "--------------------------------------------------------------------------------------"
 
     if [ ${#ALL_MODELS_FOUND[@]} -eq 0 ]; then
         echo "警告: 未找到任何训练好的模型。请确保 logs 目录下有模型检查点。"
     fi
+
+    # 为本次单图片比较运行生成一个统一的时间戳目录名称
+    RUN_TIMESTAMP_DIR="$(date +%Y%m%d-%H%M%S)"
+    echo "信息: 本次单张图片比较结果图片将保存到 results/${RUN_TIMESTAMP_DIR}/ 目录下。"
 
     for MODEL_PATH in "${ALL_MODELS_FOUND[@]}"; do
         # 重新精确提取相关路径和名称
@@ -350,11 +354,11 @@ elif [ "$MODE" == "compare_single_image" ]; then
             PREDICTED_LABEL="SKIPPED"
             SCORE="METADATA_MISSING"
             ERROR_NOTE="元数据文件缺失"
-            printf "%-40s | %-10s | %-12s | %-15s | %-10s\n" "${COMBO_NAME}" "${MODEL_TYPE_FROM_META}" "${LOSS_TYPE_FROM_META}" "${PREDICTED_LABEL}" "${SCORE}"
+            printf "%-40s | %-15s | %-10s\n" "${COMBO_NAME}" "${PREDICTED_LABEL}" "${SCORE}"
             if [ -n "${ERROR_NOTE}" ]; then
                  echo "   - 注意: ${ERROR_NOTE}"
             fi
-            echo "\""${COMBO_NAME}\"",\""${MODEL_TYPE_FROM_META}\"",\""${LOSS_TYPE_FROM_META}\"",\""${PREDICTED_LABEL}\"",\""${SCORE}\""" >> "${SINGLE_IMAGE_CSV}"
+            echo "\"${COMBO_NAME}\",\"${PREDICTED_LABEL}\",\"${SCORE}\"" >> "${SINGLE_IMAGE_CSV}"
             continue # 跳到循环中的下一个模型
         fi
 
@@ -365,6 +369,7 @@ elif [ "$MODE" == "compare_single_image" ]; then
             --model_path "${MODEL_PATH}"
             --image_path "${INPUT_IMAGE_PATH}"
             --use_gpu
+            --run_timestamp "${RUN_TIMESTAMP_DIR}" # 传递统一的时间戳
         )
         
         if [ "${LOSS_TYPE_FROM_META}" == "arcface" ] && [ -n "${ARCFACE_LIBRARY_PATHS[${MODEL_PATH}]}" ]; then
@@ -402,13 +407,13 @@ elif [ "$MODE" == "compare_single_image" ]; then
             echo "---------------------------------------------------"
         fi
         
-        printf "%-40s | %-10s | %-12s | %-15s | %-10s\n" "${COMBO_NAME}" "${MODEL_TYPE_FROM_META}" "${LOSS_TYPE_FROM_META}" "${PREDICTED_LABEL}" "${SCORE}"
+        printf "%-40s | %-15s | %-10s\n" "${COMBO_NAME}" "${PREDICTED_LABEL}" "${SCORE}"
         if [ -n "${ERROR_NOTE}" ]; then
              echo "   - 注意: ${ERROR_NOTE}"
         fi
 
         # 将结果写入 CSV 文件 (确保字段正确引用，以防包含逗号或空格)
-        echo "\"${COMBO_NAME}\",\"${MODEL_TYPE_FROM_META}\",\"${LOSS_TYPE_FROM_META}\",\"${PREDICTED_LABEL}\",\"${SCORE}\"" >> "${SINGLE_IMAGE_CSV}"
+        echo "\"${COMBO_NAME}\",\"${PREDICTED_LABEL}\",\"${SCORE}\"" >> "${SINGLE_IMAGE_CSV}"
 
     done
     echo "--------------------------------------------------------------------------------------"
